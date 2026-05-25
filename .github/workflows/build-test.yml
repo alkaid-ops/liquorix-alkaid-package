@@ -31,14 +31,14 @@ jobs:
         with:
           repository: 'damentz/liquorix-package'
           # 这里可以指定你想编译的对方分支，比如 'master' 或 '7.0/master'
-          ref: 'master' 
+          ref: '7.0/master' 
 
       # 2. 把【你自己的配置项目】拉取到一个完全隔离的子目录，这样就不会冲突
       - name: Checkout custom config project
         uses: actions/checkout@v4
         with:
           path: my-ci-context
-          
+
       - name: Extract version info
         id: version
         run: |
