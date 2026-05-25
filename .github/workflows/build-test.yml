@@ -83,15 +83,18 @@ jobs:
           remove-browsers: true
           verbose: true
 
-      # 1. 拉取你的配置项目
+      # 1. 必须先用原生 actions 把对方项目平铺拉到根目录（它会自动清空环境，所以要放在最前面）
+      - name: Clone original Liquorix project
+        uses: actions/checkout@v4
+        with:
+          repository: 'damentz/liquorix-package'
+          ref: '7.0/master' # 精准指定对方的分支，避开之前找不到 master 的问题
+
+      # 2. 接着把【你自己的配置项目】塞到隔离的子目录下，这样绝对不会起冲突
       - name: Checkout custom config project
         uses: actions/checkout@v4
         with:
           path: my-ci-context
-
-      # 2. 克隆 Liquorix 源码
-      - name: Clone original Liquorix project
-        run: git clone https://github.com/damentz/liquorix-package.git .
 
       # 3. 注入你的自定义内核配置
       - name: Inject custom config
