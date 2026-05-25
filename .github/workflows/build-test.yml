@@ -25,14 +25,20 @@ jobs:
           remove-browsers: true
           verbose: true
 
+      # 1. 明确把对方的项目克隆到原原本本的平铺根目录中（通过 actions/checkout 配合其参数）
+      - name: Clone original Liquorix project
+        uses: actions/checkout@v4
+        with:
+          repository: 'damentz/liquorix-package'
+          # 这里可以指定你想编译的对方分支，比如 'master' 或 '7.0/master'
+          ref: 'master' 
+
+      # 2. 把【你自己的配置项目】拉取到一个完全隔离的子目录，这样就不会冲突
       - name: Checkout custom config project
         uses: actions/checkout@v4
         with:
           path: my-ci-context
-
-      - name: Clone original Liquorix project
-        run: git clone https://github.com/damentz/liquorix-package.git .
-
+          
       - name: Extract version info
         id: version
         run: |
