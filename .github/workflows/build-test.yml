@@ -1,0 +1,142 @@
+name: Build Custom Kernel
+
+on:
+  push:
+    branches: ['main', 'master', '[0-9]*.[0-9]*/**']
+  workflow_dispatch:
+
+env:
+  GPG_REAL_NAME: "Liquorix CI Build User"
+  GPG_EMAIL: "ci@liquorix.net"
+  TARGET_CONFIG_PATH: "linux-liquorix/debian/config/amd64/config"
+
+jobs:
+  # 保留 prepare 是为了自动生成 target release 矩阵（Debian/Ubuntu 各版本）
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      version-major: ${{ steps.version.outputs.major }}
+      date: ${{ steps.date.outputs.date }}
+    steps:
+      - uses: mathio/gha-cleanup@v1
+        with:
+          remove-browsers: true
+          verbose: true
+
+      - name: Checkout custom config project
+        uses: actions/checkout@v4
+        with:
+          path: my-ci-context
+
+      - name: Clone original Liquorix project
+        run: git clone https://github.com/damentz/liquorix-package.git .
+
+      - name: Extract version info
+        id: version
+        run: |
+          branch="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          if [[ ! "$branch" =~ ^[0-9] ]]; then
+            branch_major="6.13" # 保底内核大版本
+          else
+            branch_major="${branch%%/*}"
+          fi
+          echo "major=$branch_major" >> "$GITHUB_OUTPUT"
+
+          source scripts/debian/env.sh
+          echo "date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Generate build matrix from env.sh
+        id: set-matrix
+        run: |
+          source scripts/debian/env.sh
+          matrix='{"include":['
+          first=true
+          for release in "${releases_debian[@]}"; do
+            [[ "$first" == true ]] && first=false || matrix+=','
+            matrix+="{\"distro\":\"debian\",\"release\":\"$release\"}"
+          done
+          for release in "${releases_ubuntu[@]}"; do
+            matrix+=",{\"distro\":\"ubuntu\",\"release\":\"$release\"}"
+          done
+          matrix+=']}'
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  # 核心编译 Job：直接在一个 Job 里完成“注入、生成源码、本地编译二进制”
+  build:
+    name: Build DEB (${{ matrix.distro }}/${{ matrix.release }})
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: mathio/gha-cleanup@v1
+        with:
+          remove-browsers: true
+          verbose: true
+
+      # 1. 拉取你的配置项目
+      - name: Checkout custom config project
+        uses: actions/checkout@v4
+        with:
+          path: my-ci-context
+
+      # 2. 克隆 Liquorix 源码
+      - name: Clone original Liquorix project
+        run: git clone https://github.com/damentz/liquorix-package.git .
+
+      # 3. 注入你的自定义内核配置
+      - name: Inject custom config
+        run: |
+          cat my-ci-context/my-custom-config.conf >> "$TARGET_CONFIG_PATH"
+          echo "==== Custom Config Injected ===="
+
+      # 4. 下载内核上游源码并生成临时 GPG（给本地打包流过渡用）
+      - name: Download kernel source
+        run: scripts/debian/common_bootstrap.sh
+
+      - name: Generate temporary GPG key
+        run: |
+          gpg --batch --gen-key <<GPGEOF
+          %no-protection
+          Key-Type: RSA
+          Key-Length: 4096
+          Subkey-Type: RSA
+          Subkey-Length: 4096
+          Name-Real: ${GPG_REAL_NAME}
+          Name-Email: ${GPG_EMAIL}
+          Expire-Date: 1d
+          %commit
+          GPGEOF
+          key_id=$(gpg --list-keys --with-colons "${GPG_EMAIL}" | grep -m1 '^fpr' | cut -d: -f10)
+          echo "default-key $key_id" > ~/.gnupg/gpg.conf
+
+      - name: Update changelog author
+        run: |
+          sed -i '0,/^ -- /{s/^ -- .*/ -- '"${GPG_REAL_NAME}"' <'"${GPG_EMAIL}"'>  '"$(date -R)"'/}' \
+            linux-liquorix/debian/changelog
+
+      # 5. 构建构建环境的 Docker 镜像
+      - name: Bootstrap Docker image
+        run: |
+          make bootstrap-image DISTRO="${{ matrix.distro }}" RELEASE="${{ matrix.release }}"
+
+      # 6. 【关键合并】在本地直接连着跑 source 和 binary，不需要跨虚拟机传输 Artifact
+      - name: Build Packages (Source & Binary)
+        run: |
+          # 先本地生成 source 结构（满足 Makefile 依赖）
+          make build-source DISTRO="${{ matrix.distro }}" RELEASE="${{ matrix.release }}"
+          # 直接本地编译二进制 deb 包
+          make build-binary DISTRO="${{ matrix.distro }}" RELEASE="${{ matrix.release }}"
+
+      # 7. 只上传你需要的最终 .deb 安装包
+      - name: Upload DEB Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-debs-${{ matrix.distro }}-${{ matrix.release }}
+          path: artifacts/${{ matrix.distro }}/${{ matrix.release }}/*_amd64.deb
+          retention-days: 7
+          if-no-files-found: error
