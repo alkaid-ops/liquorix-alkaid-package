@@ -144,7 +144,7 @@ jobs:
           GLOBAL_CONFIG="linux-liquorix/debian/config/config"
           TARGET_FILE=$([ -f "$SPECIFIC_CONFIG" ] && echo "$SPECIFIC_CONFIG" || echo "$GLOBAL_CONFIG")
           echo "Injecting into: $TARGET_FILE"
-          cat my-ci-context/my-custom-config.conf >> "$TARGET_FILE"
+          cat my-ci-context/config-arch-64 > "$TARGET_FILE"
 
       - name: Restore kernel source cache
         uses: actions/cache/restore@v4
