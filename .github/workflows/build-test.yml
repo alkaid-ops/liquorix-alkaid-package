@@ -228,10 +228,9 @@ jobs:
 
       - name: Inject custom config
         run: |
-          SPECIFIC_CONFIG="linux-liquorix/debian/config/amd64/config"
-          GLOBAL_CONFIG="linux-liquorix/debian/config/config"
-          TARGET_FILE=$([ -f "$SPECIFIC_CONFIG" ] && echo "$SPECIFIC_CONFIG" || echo "$GLOBAL_CONFIG")
-          cat my-ci-context/my-custom-config.conf >> "$TARGET_FILE"
+          TARGET_FILE="linux-liquorix/debian/config/kernelarch-x86/config-arch-64"
+          echo "Injecting into: $TARGET_FILE"
+          cat my-ci-context/config-arch-64 > "$TARGET_FILE"
 
       # 恢复官方原汁原味的依赖上下游
       - name: Restore kernel source cache
